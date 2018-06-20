@@ -2,13 +2,18 @@
 # A POSIX-Compliant shell script for building
 set -ea
 
+_path_hash() {
+    echo $(echo "$1" | md5sum | cut -d' ' -f1)-$(echo "$1" | sed -e 's/\w/\L\0/g' | sed -e 's/[^a-z]/-/g')
+}
+
 USERCMD=$0
 CMD=$(realpath $USERCMD)
 SKELCACHE=~/.skelect-cache/
 SKELCACHE=$(mkdir -p $SKELCACHE; cd $SKELCACHE; pwd)
 SKELDEBUG=${SKELDEBUG:-no}
+SKELBLATHER=${SKELBLATHER:-no}
 TARGETDIR=$(cd ${TARGETDIR:-`pwd`}; pwd)
-TARGETHASH=$(echo "hi" | md5sum | cut -d' ' -f1)-$(echo $TARGETDIR | sed -e 's/\w/\L\0/g' | sed -e 's/[^a-z]/-/g')
+TARGETHASH=$(_path_hash $TARGETDIR)
 TARGETCACHE=$(realpath $SKELCACHE/$TARGETHASH/)
 
 SKELECTGIT=${SKELECTGIT:-https://github.com/andyortlieb/skelect.git}
@@ -51,7 +56,7 @@ _usage_help() {
 _log() {
     level=$1
     shift
-    echo [$level] "$@" 1>&2
+    echo -e [$level] "$@" 1>&2
 }
 
 _debug() {
@@ -59,6 +64,17 @@ _debug() {
     then
         _log debug "$@"
     fi
+}
+
+_blather() {
+    if ! [ "$SKELBLATHER" = "no" ]
+    then
+        _log blather "$@"
+    fi
+}
+
+_info() {
+    _log info "$@"
 }
 
 _error() {
@@ -87,6 +103,7 @@ _try() {
 
 _debug_inspect() {
     _debug "TARGET" ${TARGETDIR}
+    _debug "TARGETHASH" ${TARGETHASH}
 }
 
 _anykey() {
@@ -114,6 +131,17 @@ _test_fail() {
     _log testing "see this"
     fail
     _log testing "don't see this"
+}
+
+_self_test_watcher() {
+    _blather "Here, try this"
+    cat <<-EOF
+    while true
+    do
+        inotifywait -e close_write $USERCMD
+        $CMD _self_test
+    done
+EOF
 }
 
 _self_test() {
@@ -150,7 +178,7 @@ _self_test() {
 
 
     ## Test cache building
-    echo trying to get $SKELECTGIT
+    _blather trying to get $SKELECTGIT
 
     loc=$(_uri_cache_loc $SKELECTGIT)
     rm -rf $loc  # Just clearing this so we know we're starting fresh
@@ -159,12 +187,8 @@ _self_test() {
     test -d $loc || _tfail "cache directory does not exist after pull cache?"
 
 
-
-
-
-
     ## Still here? Done!
-    echo "Tests passed"
+    _info "Tests passed"
 }
 
 
@@ -175,30 +199,24 @@ _git_get () {
     URI=$1
     BRANCH=$2
     GITDEST=$(_uri_cache_loc $1)
+    _blather THE GITDEST $GITDEST
     _debug skelchache $SKELCACHE
     _debug gitdest $GITDEST
 
     # Prepare the git holder
-    mkdir -p $GITDEST
-    cd $GITDEST
-    pwd
-    ls
+    mkdir -p $(dirname $GITDEST)
 
     # Clone it if not exist
     if ! test -d $GITDEST/.git
     then
         # New git get directive, clone it
-        echo -e "\n\n\n WHERE THEFUCK AMI"
-        pwd
-        ls
-        git clone $URI
-        pwd
-        ls
+        git clone $URI $GITDEST
+        # Get on the right branch
+        (cd $GITDEST && git checkout $SKELGITBRANCH)
+    else
+        # Update: Fetch, checkout requested branch & pull
+        (cd $GITDEST && git fetch && git checkout $SKELGITBRANCH && git pull)
     fi
-
-    # Fetch, checkout the branch, and update.
-    echo -e "\n\n\n\n\n\n\n\n\n\n\n $GITDEST \n\n\n\n $(ls $GITDEST)"
-    (cd $GITDEST/$(basename $URI) && git fetch && git checkout $SKELGITBRANCH && git pull)
 }
 
 _local_get_local () {
@@ -210,10 +228,10 @@ _local_get_local () {
 _uri_cache_loc () {
     if (echo $1 | egrep -q '^https://') || (echo $1 | egrep -q '^ssh://')
     then
-        echo $TARGETCACHE/git-sources/
+        echo $TARGETCACHE/git-sources/$(_path_hash $1)
     elif (echo $1 | egrep -q '^(\.)?(\.)?/')
     then
-        echo $TARGETCACHE/local-sources/
+        echo $TARGETCACHE/local-sources/$(_path_hash $1)
     else
         _fatal Requested source path supported $1
     fi
@@ -221,10 +239,15 @@ _uri_cache_loc () {
 
 _pull_cache () {
     cacheloc=$(_uri_cache_loc $1)
-    if [ "$(basename $cacheloc)" = "git-sources" ]
+    _blather aaah "\n\n\n\n\n"
+    _blather $1 ... $cacheloc
+    if [ "$(basename $(dirname $cacheloc))" = "git-sources" ]
     then
+        _blather almost
         _git_get $1
+        _blather donne
     else
+        _blather fuckit
         _fatal Unsupported cache source location: $cacheloc
     fi
 
@@ -252,6 +275,8 @@ sync() {
 
 ###
 ### Command entrypoint
+
+_debug_inspect
 
 if compgen -A function | grep -q "$1"
 then
