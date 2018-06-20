@@ -1,0 +1,264 @@
+#!/bin/sh
+# A POSIX-Compliant shell script for building
+set -ea
+
+USERCMD=$0
+CMD=$(realpath $USERCMD)
+SKELCACHE=~/.skelect-cache/
+SKELCACHE=$(mkdir -p $SKELCACHE; cd $SKELCACHE; pwd)
+SKELDEBUG=${SKELDEBUG:-no}
+TARGETDIR=$(cd ${TARGETDIR:-`pwd`}; pwd)
+TARGETHASH=$(echo "hi" | md5sum | cut -d' ' -f1)-$(echo $TARGETDIR | sed -e 's/\w/\L\0/g' | sed -e 's/[^a-z]/-/g')
+TARGETCACHE=$(realpath $SKELCACHE/$TARGETHASH/)
+
+SKELECTGIT=${SKELECTGIT:-https://github.com/andyortlieb/skelect.git}
+
+_usage=""
+
+
+###
+### Scripting support functions
+
+_main_help() {
+    echo
+    echo "$USERCMD - Utilities for selecting, maintainaing and creating workspace skeletons"
+    echo "Usage:"
+    echo "    $USERCMD <subcommand> [[<subcommand>]...] [[<arguments>]...]"
+    echo
+    echo "Examples:"
+    echo "    $USERCMD help"
+    echo "    $USERCMD apply <https://git.example.com/owner/projname.git/path/to/desired/skel> [<desired-branch>]"
+    echo "    $USERCMD create </filesystem/path/to/new/skel/root> [-from=url://existing/skel/to/clone]"
+    echo
+    echo "Available subcommands:"
+    echo "    " `compgen -A function | grep -v '^_' | sort`
+}
+
+_help() {
+    echo "You found the secret help"
+    echo "Available subcommands:"
+    echo "    " `compgen -A function | sort`
+}
+
+_usage_help() {
+    if [ "$_usage" ]
+    then
+        echo "Usage:" 1>&2
+        echo "    " $_usage 1>&2
+    fi
+}
+
+_log() {
+    level=$1
+    shift
+    echo [$level] "$@" 1>&2
+}
+
+_debug() {
+    if ! [ "$SKELDEBUG" = "no" ]
+    then
+        _log debug "$@"
+    fi
+}
+
+_error() {
+    _log error "$@"
+}
+
+_fatal() {
+    _error $@
+    false
+}
+
+_try() {
+    # Do whatever the user wants
+    set +e
+    (set -e; $@)
+    ex=$?
+    set -e
+
+    if [[ $ex != 0 ]]
+    then
+        _debug "Function failed: $ex"
+        _usage_help
+        exit $ex
+    fi
+}
+
+_debug_inspect() {
+    _debug "TARGET" ${TARGETDIR}
+}
+
+_anykey() {
+    read -n 1 -s -r -p "Press any key to continue"
+}
+
+help() {
+    _main_help
+    _usage_help
+}
+
+###
+### Testing utilitiy
+
+_tfail() {
+    echo Test failed: "$@"
+    exit 64
+}
+
+_test_fail() {
+    fail() {
+        return 32
+    }
+
+    _log testing "see this"
+    fail
+    _log testing "don't see this"
+}
+
+_self_test() {
+    # Test junk against myself, expect a passing result
+    TDIR=$(realpath ./_skelect-self-test/)
+    mkdir -p $TDIR
+    cd $TDIR
+
+
+    ## Test my appropriate understanding of when the shell exits and when it does not
+    output=$($CMD _test_fail 2>&1 && _tfail "_test_fail passed instead of failed" || true)
+    echo $output | grep -q "see this" || _tfail "missing output"
+    echo $output | grep -qv "don't see this" || _tfail "extraneous output"
+
+
+    ## Test identifying source paths
+    # ssh is git
+    output=$($CMD _uri_cache_loc ssh://test.example.com/user/project)
+    echo $output | grep -q "$TARGETCACHE/git-sources/" || _tfail "ssh not considered git?"
+    # https is git
+    output=$($CMD _uri_cache_loc https://test.example.com/user/project)
+    echo $output | grep -q "$TARGETCACHE/git-sources/" || _tfail "https not considered git?"
+    # http not supported
+    ($CMD _uri_cache_loc http://test.example.com/user/project) && _tfail "http(insecure) should fail?"
+    # File locations are supported, only absolute & anchored relative
+    output=$($CMD _uri_cache_loc ./user/project)
+    echo $output | grep -q "$TARGETCACHE/local-sources/" || _tfail "local ./ not considered git?"
+    output=$($CMD _uri_cache_loc ../user/project)
+    echo $output | grep -q "$TARGETCACHE/local-sources/" || _tfail "local ../ not considered git?"
+    output=$($CMD _uri_cache_loc /user/project)
+    echo $output | grep -q "$TARGETCACHE/local-sources/" || _tfail "local / not considered git?"
+    # Non-anchored paths are not supported
+    ($CMD _uri_cache_loc user/project) && _tfail "erroneously supported path"
+
+
+    ## Test cache building
+    echo trying to get $SKELECTGIT
+
+    loc=$(_uri_cache_loc $SKELECTGIT)
+    rm -rf $loc  # Just clearing this so we know we're starting fresh
+    test -d $loc && _tfail "cache directory already exists?"
+    _pull_cache $SKELECTGIT
+    test -d $loc || _tfail "cache directory does not exist after pull cache?"
+
+
+
+
+
+
+    ## Still here? Done!
+    echo "Tests passed"
+}
+
+
+###
+### Implementation Support Functions
+
+_git_get () {
+    URI=$1
+    BRANCH=$2
+    GITDEST=$(_uri_cache_loc $1)
+    _debug skelchache $SKELCACHE
+    _debug gitdest $GITDEST
+
+    # Prepare the git holder
+    mkdir -p $GITDEST
+    cd $GITDEST
+    pwd
+    ls
+
+    # Clone it if not exist
+    if ! test -d $GITDEST/.git
+    then
+        # New git get directive, clone it
+        echo -e "\n\n\n WHERE THEFUCK AMI"
+        pwd
+        ls
+        git clone $URI
+        pwd
+        ls
+    fi
+
+    # Fetch, checkout the branch, and update.
+    echo -e "\n\n\n\n\n\n\n\n\n\n\n $GITDEST \n\n\n\n $(ls $GITDEST)"
+    (cd $GITDEST/$(basename $URI) && git fetch && git checkout $SKELGITBRANCH && git pull)
+}
+
+_local_get_local () {
+    _error not implemetned get_local
+    return 1
+
+}
+
+_uri_cache_loc () {
+    if (echo $1 | egrep -q '^https://') || (echo $1 | egrep -q '^ssh://')
+    then
+        echo $TARGETCACHE/git-sources/
+    elif (echo $1 | egrep -q '^(\.)?(\.)?/')
+    then
+        echo $TARGETCACHE/local-sources/
+    else
+        _fatal Requested source path supported $1
+    fi
+}
+
+_pull_cache () {
+    cacheloc=$(_uri_cache_loc $1)
+    if [ "$(basename $cacheloc)" = "git-sources" ]
+    then
+        _git_get $1
+    else
+        _fatal Unsupported cache source location: $cacheloc
+    fi
+
+}
+
+
+###
+### User Interface Implementations
+
+apply() {
+    _usage="$CMD apply <src-location>"
+    _opts="SKELGITBRANCH=$SKELGITBRANCH"
+
+    URI=$1
+    _try _pull_cache $URI
+}
+
+sync() {
+    _usage="$CMD sync <src-location>"
+
+    _error "sync not implemented yet"
+    _try false
+}
+
+
+###
+### Command entrypoint
+
+if compgen -A function | grep -q "$1"
+then
+    _debug "Trying: $@"
+    _try $@
+    _debug "Completed command: $@"
+else
+    _error "$1 is not a subcommand known. For usage help try:"
+    _error "    $USERCMD help"
+fi
