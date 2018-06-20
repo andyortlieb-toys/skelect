@@ -119,7 +119,7 @@ help() {
 ### Testing utilitiy
 
 _tfail() {
-    echo Test failed: "$@"
+    _error Test failed: "$@"
     exit 64
 }
 
@@ -181,10 +181,21 @@ _self_test() {
     _blather trying to get $SKELECTGIT
 
     loc=$(_uri_cache_loc $SKELECTGIT)
-    rm -rf $loc  # Just clearing this so we know we're starting fresh
-    test -d $loc && _tfail "cache directory already exists?"
+    #rm -rf $loc  # Just clearing this so we know we're starting fresh
+    #test -d $loc && _tfail "cache directory already exists?"
     _pull_cache $SKELECTGIT
     test -d $loc || _tfail "cache directory does not exist after pull cache?"
+    test -d $loc/.git || _tfail "The directory doesn't have a .git in it. $loc"
+    _blather "Showing that cache can be pulled more than once without exploding"
+    _pull_cache $SKELECTGIT || _tfail "Failed to pull cache for existing repo"
+    test -d $loc || _tfail "(2)cache directory does not exist after pull cache?"
+    test -d $loc/.git || _tfail "(2)The directory doesn't have a .git in it. $loc"
+
+
+    ## Test applying files
+    # (Using the same loc)
+    (TARGETDIR=`pwd` $CMD apply $SKELECTGIT)
+
 
 
     ## Still here? Done!
@@ -199,7 +210,6 @@ _git_get () {
     URI=$1
     BRANCH=$2
     GITDEST=$(_uri_cache_loc $1)
-    _blather THE GITDEST $GITDEST
     _debug skelchache $SKELCACHE
     _debug gitdest $GITDEST
 
@@ -222,7 +232,6 @@ _git_get () {
 _local_get_local () {
     _error not implemetned get_local
     return 1
-
 }
 
 _uri_cache_loc () {
@@ -239,20 +248,90 @@ _uri_cache_loc () {
 
 _pull_cache () {
     cacheloc=$(_uri_cache_loc $1)
-    _blather aaah "\n\n\n\n\n"
-    _blather $1 ... $cacheloc
     if [ "$(basename $(dirname $cacheloc))" = "git-sources" ]
     then
-        _blather almost
         _git_get $1
-        _blather donne
     else
-        _blather fuckit
         _fatal Unsupported cache source location: $cacheloc
     fi
-
 }
 
+
+_xxx_crappy_rsync() {
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    _blather YYYY
+    echo $1
+    pwd
+    ls -l
+    ls -l -a $1
+    _blather YYYY 1
+    _blather YYYY 1
+
+    for f in `ls -a $1`
+    do
+        # FIXME (alo) - Do we want to step around .git dirs? I don't know.
+        #             - Maybe only if we support a non `skelect-files` source?
+        if ! ([ "$f" == "." ] || [ "$f" == ".." ])
+        then
+            _info "Staging file for copy $f"
+            f=$(basename $f)
+            _blather "\n -> $2/$f"
+            cp -a $1/$f -t $2
+        fi
+    done
+}
+
+_stage_files () {
+    src=$(_uri_cache_loc $1)
+
+    if ! test -d $src/skelect-files
+    then
+        _info "Selected skelect source has no skelect-files directory"
+        return 0
+    fi
+
+    stage1=$TARGETCACHE/stage1/$(_path_hash $1)
+    mkdir -p $stage1
+
+    # Locate every file from the source and copy it to staging
+    _xxx_crappy_rsync $src/skelect-files $stage1
+}
+
+_stage_templates () {
+    _error "Stage templates not implemented yet, skipping for now."
+    return 0
+}
+
+_audit_pre_copy () {
+    _error "_audit_pre_copy is not implemented yet. Skipping for now."
+}
+
+_deploy_stage () {
+    stage1=$TARGETCACHE/stage1/$(_path_hash $1)
+    _blather XXX1
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+    _blather XXXX
+
+    _xxx_crappy_rsync $stage1 $TARGETDIR
+    _blather XXX2
+}
 
 ###
 ### User Interface Implementations
@@ -263,12 +342,16 @@ apply() {
 
     URI=$1
     _try _pull_cache $URI
+    _try _stage_files $URI
+    _try _stage_templates $URI
+    _try _audit_pre_copy $URI
+    _try _deploy_stage $URI
 }
 
-sync() {
-    _usage="$CMD sync <src-location>"
+update() {
+    _usage="$CMD update <src-location>"
 
-    _error "sync not implemented yet"
+    _error "update not implemented yet"
     _try false
 }
 
