@@ -147,6 +147,7 @@ EOF
 
 _self_test() {
     # Test junk against myself, expect a passing result
+    SKELECTFILES=testing/testing-skelect-files
     TDIR=$(realpath ./_skelect-self-test/)
     mkdir -p $TDIR
     cd $TDIR
