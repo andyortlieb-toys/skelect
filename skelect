@@ -1,5 +1,5 @@
-#!/bin/sh
-# A POSIX-Compliant shell script for building
+#!/bin/bash
+# A bash :( -Compliant shell script for building
 set -ea
 
 _path_hash() {
@@ -11,7 +11,8 @@ CMD=$(realpath $USERCMD)
 SKELCACHE=~/.skelect-cache/
 SKELCACHE=$(mkdir -p $SKELCACHE; cd $SKELCACHE; pwd)
 SKELDEBUG=${SKELDEBUG:-no}
-SKELBLATHER=${SKELBLATHER:-no}
+SKELBLATHER=${SKELBLATHER:-noiya}
+SKELECTFILES=${SKELECTFILES:-skelect-files}
 TARGETDIR=$(cd ${TARGETDIR:-`pwd`}; pwd)
 TARGETHASH=$(_path_hash $TARGETDIR)
 TARGETCACHE=$(realpath $SKELCACHE/$TARGETHASH/)
@@ -181,8 +182,8 @@ _self_test() {
     _blather trying to get $SKELECTGIT
 
     loc=$(_uri_cache_loc $SKELECTGIT)
-    #rm -rf $loc  # Just clearing this so we know we're starting fresh
-    #test -d $loc && _tfail "cache directory already exists?"
+    rm -rf $loc  # Just clearing this so we know we're starting fresh
+    test -d $loc && _tfail "cache directory already exists?"
     _pull_cache $SKELECTGIT
     test -d $loc || _tfail "cache directory does not exist after pull cache?"
     test -d $loc/.git || _tfail "The directory doesn't have a .git in it. $loc"
@@ -191,12 +192,17 @@ _self_test() {
     test -d $loc || _tfail "(2)cache directory does not exist after pull cache?"
     test -d $loc/.git || _tfail "(2)The directory doesn't have a .git in it. $loc"
 
-
     ## Test applying files
-    # (Using the same loc)
+    # NOTE: Need to override TARGETDIR because we auto-export everything 
+    # Need to do some cleanup to make sure motions really happened
+    # Make for certain we are where we think we are before we go on deleting
+    basename `pwd` | grep -q '_skelect-self-test' || _tfail "We got unsafely lost"
+    rm -rf dir1 *.txt
+    [ "$(echo $(ls -a))" = ". .." ] || _tfail Unexpected files here in `pwd` 
     (TARGETDIR=`pwd` $CMD apply $SKELECTGIT)
-
-
+    found=$(echo $(find . -type f -name '*.txt' | sort))
+    [ "$(echo $found)" = "./dir1/dir2/sample2.txt ./sample1.txt" ] || _tfail shit
+   
 
     ## Still here? Done!
     _info "Tests passed"
@@ -256,24 +262,7 @@ _pull_cache () {
     fi
 }
 
-
 _xxx_crappy_rsync() {
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    _blather YYYY
-    echo $1
-    pwd
-    ls -l
-    ls -l -a $1
-    _blather YYYY 1
-    _blather YYYY 1
-
     for f in `ls -a $1`
     do
         # FIXME (alo) - Do we want to step around .git dirs? I don't know.
@@ -282,7 +271,6 @@ _xxx_crappy_rsync() {
         then
             _info "Staging file for copy $f"
             f=$(basename $f)
-            _blather "\n -> $2/$f"
             cp -a $1/$f -t $2
         fi
     done
@@ -290,8 +278,7 @@ _xxx_crappy_rsync() {
 
 _stage_files () {
     src=$(_uri_cache_loc $1)
-
-    if ! test -d $src/skelect-files
+    if ! test -d $src/$SKELECTFILES
     then
         _info "Selected skelect source has no skelect-files directory"
         return 0
@@ -301,7 +288,7 @@ _stage_files () {
     mkdir -p $stage1
 
     # Locate every file from the source and copy it to staging
-    _xxx_crappy_rsync $src/skelect-files $stage1
+    _xxx_crappy_rsync $src/$SKELECTFILES $stage1
 }
 
 _stage_templates () {
@@ -314,23 +301,9 @@ _audit_pre_copy () {
 }
 
 _deploy_stage () {
+    _blather Deploy Stage for $1 onto $TARGETDIR
     stage1=$TARGETCACHE/stage1/$(_path_hash $1)
-    _blather XXX1
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-    _blather XXXX
-
     _xxx_crappy_rsync $stage1 $TARGETDIR
-    _blather XXX2
 }
 
 ###
